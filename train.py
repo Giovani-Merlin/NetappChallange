@@ -51,13 +51,9 @@ def train_model(model, train_loader, epoch, num_epochs, optimizer, writer, curre
         probas = torch.sigmoid(prediction).detach().cpu().numpy()
         y_preds.extend(probas)
         training_preds.extend(probas)
-        # Estimate accuracy
-        accuracy = metrics.accuracy_score(labels, probas.round())
-
 
         writer.add_scalar('Train/Loss', loss_value,
                           epoch * len(train_loader) + i)
-        writer.add_scalar('Train/accuracy', accuracy, epoch * len(train_loader) + i)
 
         if (i % log_every == 0) & (i > 0):
             try:
@@ -66,6 +62,8 @@ def train_model(model, train_loader, epoch, num_epochs, optimizer, writer, curre
             except:
                 train_auc = 0.5
             training_preds, training_trues = [], []
+            writer.add_scalar('Train/auc', train_auc, epoch * len(train_loader) + i)
+            
             print('''[Epoch: {0} / {1} |Single batch number : {2} / {3} ]| avg train loss {4} | train auc : {5} | lr : {6}'''.
                   format(
                       epoch + 1,
@@ -78,7 +76,7 @@ def train_model(model, train_loader, epoch, num_epochs, optimizer, writer, curre
                   )
                   )
     auc = metrics.roc_auc_score(y_trues, y_preds)
-    writer.add_scalar('Train/AUC_epoch', auc, epoch + i)
+    writer.add_scalar('Train/auc', auc, epoch + i)
 
     train_loss_epoch = np.round(np.mean(losses), 4)
     train_auc_epoch = np.round(auc, 4)
@@ -112,18 +110,17 @@ def evaluate_model(model, val_loader, epoch, num_epochs, writer, current_lr, log
         probas = torch.sigmoid(prediction).detach().cpu().numpy()
         y_preds.extend(probas)
 
-        # Estimate accuracy
-        accuracy = metrics.accuracy_score(labels, probas.round())
 
         writer.add_scalar('Valid/Loss', loss_value,
                           epoch * len(val_loader) + i)
-        writer.add_scalar('Valid/accuracy', accuracy, epoch * len(val_loader) + i)
+
 
         if (i % log_every == 0) & (i > 0):
             try:
                 valid_auc = metrics.roc_auc_score(y_trues, y_preds)
             except:
                 valid_auc = 0.5
+            writer.add_scalar('Valid/auc', valid_auc, epoch * len(val_loader) + i)
             print('''[Epoch: {0} / {1} |Single batch number : {2} / {3} ]| avg valid loss {4} | valid auc : {5} | lr : {6}'''.
                   format(
                       epoch + 1,
@@ -136,6 +133,7 @@ def evaluate_model(model, val_loader, epoch, num_epochs, writer, current_lr, log
                   )
                   )
     auc = metrics.roc_auc_score(y_trues, y_preds)
+    writer.add_scalar('Valid/auc', valid_auc, epoch * len(val_loader) + i)
     val_auc_epoch = np.round(auc, 4)
     val_loss_epoch = np.round(np.mean(losses), 4) 
     return val_loss_epoch, val_auc_epoch
@@ -177,12 +175,12 @@ def run(args):
     train_dataset = MRDataset(f'{base_folder}/data/', args.task,
                               args.plane, transform=augmentor, train=True)
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=4, shuffle=True, num_workers=6, drop_last=False, collate_fn=stack_collate, generator=g)
+        train_dataset, batch_size=1, shuffle=True, num_workers=6, drop_last=False, collate_fn=stack_collate, generator=g)
 
     validation_dataset = MRDataset(
         f'{base_folder}/data/', args.task, args.plane, train=False)
     validation_loader = torch.utils.data.DataLoader(
-        validation_dataset, batch_size=4, shuffle=-True, num_workers=6, drop_last=False,collate_fn=stack_collate, generator=g)
+        validation_dataset, batch_size=1, shuffle=-True, num_workers=6, drop_last=False,collate_fn=stack_collate, generator=g)
 
     mrnet = model.MRNet()
 
@@ -266,7 +264,7 @@ def parse_arguments():
                         default='plateau', choices=['plateau', 'step'])
     parser.add_argument('--gamma', type=float, default=0.5)
     parser.add_argument('--epochs', type=int, default=40)
-    parser.add_argument('--lr', type=float, default=5e-6)
+    parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--flush_history', type=int, choices=[0, 1], default=0)
     parser.add_argument('--save_model', type=int, choices=[0, 1], default=1)
     parser.add_argument('--patience', type=int, default=5)
