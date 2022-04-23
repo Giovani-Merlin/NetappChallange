@@ -146,7 +146,8 @@ def get_lr(optimizer):
 
 
 def run(args):
-    log_root_folder = "./logs/{0}/{1}/".format(args.task, args.plane)
+    base_folder = os.getenv("BASE_FOLDER",".")
+    log_root_folder = f"{base_folder}/logs/{args.task}/{args.plane}/"
     if args.flush_history == 1:
         objects = os.listdir(log_root_folder)
         for f in objects:
@@ -173,13 +174,13 @@ def run(args):
     g = torch.Generator()
     g.manual_seed(seed)
 
-    train_dataset = MRDataset('./data/', args.task,
+    train_dataset = MRDataset(f'{base_folder}/data/', args.task,
                               args.plane, transform=augmentor, train=True)
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=4, shuffle=True, num_workers=6, drop_last=False, collate_fn=stack_collate, generator=g)
 
     validation_dataset = MRDataset(
-        './data/', args.task, args.plane, train=False)
+        f'{base_folder}/data/', args.task, args.plane, train=False)
     validation_loader = torch.utils.data.DataLoader(
         validation_dataset, batch_size=4, shuffle=-True, num_workers=6, drop_last=False,collate_fn=stack_collate, generator=g)
 
@@ -235,10 +236,10 @@ def run(args):
             best_val_auc = val_auc
             if bool(args.save_model):
                 file_name = f'model_{args.prefix_name}_{args.task}_{args.plane}_val_auc_{val_auc:0.4f}_train_auc_{train_auc:0.4f}_epoch_{epoch+1}.pth'
-                for f in os.listdir('./models/'):
+                for f in os.listdir(f'{base_folder}/models/'):
                     if (args.task in f) and (args.plane in f) and (args.prefix_name in f):
-                        os.remove(f'./models/{f}')
-                torch.save(mrnet, f'./models/{file_name}')
+                        os.remove(f'{base_folder}/models/{f}')
+                torch.save(mrnet, f'{base_folder}/models/{file_name}')
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
