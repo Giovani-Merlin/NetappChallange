@@ -43,7 +43,6 @@ def train_model(model, train_loader, epoch, num_epochs, optimizer,scheduler, wri
         loss = torch.nn.BCEWithLogitsLoss(pos_weight=weights)(prediction, labels) # 
         loss.backward()
         optimizer.step()
-        scheduler.step()
         optimizer.zero_grad()
 
         loss_value = loss.item()
@@ -194,30 +193,15 @@ def run(args):
     if torch.cuda.is_available():
         mrnet = mrnet.cuda()
 
-    # GEt optimizer
-    no_decay = ["bias", "gamma", "beta"]
-    parameters_without_decay = []
-    parameters_with_decay = []
-    for n, p in mrnet.named_parameters():
-        if any(t in n for t in no_decay):
-            parameters_without_decay.append(p)
-        else:
-            parameters_with_decay.append(p)
-    optimizer_grouped_parameters = [
-        {"params": parameters_with_decay, "weight_decay": 0.1, "lr": args.lr},
-        {"params": parameters_without_decay, "weight_decay": 0.0, "lr": args.lr},
-    ]
-    optimizer = AdamW(optimizer_grouped_parameters, correct_bias=False)
-    warmup_proportion = 0.01
-    len_train_data = len(train_loader)
-    num_train_steps = int(len_train_data / batch_size) * args.epochs
-    num_warmup_steps = int(num_train_steps * warmup_proportion)
+    optimizer = optim.Adam(mrnet.parameters(), lr=args.lr, weight_decay=0.1)
 
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=num_warmup_steps,
-        num_training_steps=num_train_steps,
-    )
+    if args.lr_scheduler == "plateau":
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, patience=3, factor=.3, threshold=1e-4, verbose=True)
+    elif args.lr_scheduler == "step":
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, step_size=3, gamma=args.gamma)
+    
     best_val_loss = float('inf')
     best_val_auc = float(0)
 
@@ -238,7 +222,11 @@ def run(args):
         val_loss, val_auc = evaluate_model(
             mrnet, validation_loader, epoch, num_epochs, writer, current_lr)
 
-
+        if args.lr_scheduler == 'plateau':
+            scheduler.step(val_loss)
+        elif args.lr_scheduler == 'step':
+            scheduler.step()
+            
         t_end = time.time()
         delta = t_end - t_start
 
@@ -277,7 +265,7 @@ def parse_arguments():
     parser.add_argument('-p', '--plane', type=str,
                         choices=['sagittal', 'coronal', 'axial'], default='sagittal')
     parser.add_argument('--prefix_name', type=str, default='test_model')
-    parser.add_argument('--augment', type=int, choices=[0, 1], default=1)
+    parser.add_argument('--augment', type=int, choices=[0, 1], default=0)
     parser.add_argument('--lr_scheduler', type=str,
                         default='step', choices=['plateau', 'step'])
     parser.add_argument('--gamma', type=float, default=0.5)
