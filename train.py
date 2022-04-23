@@ -256,9 +256,9 @@ def run(args):
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--task', type=str, required=True,
-                        choices=['abnormal', 'acl', 'meniscus'])
+                        choices=['abnormal', 'acl', 'meniscus'], default="acl")
     parser.add_argument('-p', '--plane', type=str, required=True,
-                        choices=['sagittal', 'coronal', 'axial'])
+                        choices=['sagittal', 'coronal', 'axial'], default='sagittal')
     parser.add_argument('--prefix_name', type=str, default='test_model')
     parser.add_argument('--augment', type=int, choices=[0, 1], default=1)
     parser.add_argument('--lr_scheduler', type=str,
