@@ -53,9 +53,13 @@ def eval_test(model,test_path, task,plane, threshold=0.5):
         probas = torch.sigmoid(prediction).detach().cpu().numpy()
         y_preds.extend(probas)
     auc = metrics.roc_auc_score(y_trues, y_preds)
-    report = metrics.classification_report(y_trues, [y > threshold for y in y_preds])
+    y_preds = [y > threshold for y in y_preds]
+    report = metrics.classification_report(y_trues, y_preds)
+    confusion_metrics = metrics.confusion_matrix(y_trues, y_preds)
+
     print('AUC:', auc)
     pprint(report)
+    pprint(confusion_metrics)
     return auc, report
 
 
@@ -70,15 +74,15 @@ if __name__ == '__main__':
     base_folder = os.getenv("BASE_FOLDER",".")
     parser = argparse.ArgumentParser()
     parser.add_argument('--task', type=str, 
-                        choices=['abnormal', 'acl', 'meniscus'], default="acl")
+                        choices=['abnormal', 'acl', 'meniscus'], default="abnormal")
     parser.add_argument('--plane', type=str,
-                        choices=['sagittal', 'coronal', 'axial'], default='sagittal')
+                        choices=['sagittal', 'coronal', 'axial'], default='axial')
     parser.add_argument('--model_path', type=str, 
                         default="./models/model.pth")
     parser.add_argument("--eval_test", action="store_true")
     parser.add_argument("--test_path", type=str, default=f"{base_folder}/data/")
     parser.add_argument('--image_path', type=str, help="As a numpy matrix")
-    parser.add_argument('--threshold', type=int, default=0.1)
+    parser.add_argument('--threshold', type=int, default=0.2)
     args = parser.parse_args()
     model = torch.load(args.model_path)
 
