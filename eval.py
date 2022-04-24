@@ -20,12 +20,9 @@ def eval_image(image_path, model, threshold=0.5):
 
     # 
     answer = torch.sigmoid(prediction).detach().cpu().numpy() > threshold
-    if answer:
-        print('Prediction:', 'Positive')
-    else:
-        print('Prediction:', 'Negative')
+    prob = torch.sigmoid(prediction).detach().cpu().numpy()
 
-    
+    return answer, prob    
 
 def eval_test(model,test_path, task,plane, threshold=0.5):
     validation_dataset = MRDataset(test_path, task, plane, train=False)
@@ -84,7 +81,7 @@ if __name__ == '__main__':
     parser.add_argument('--image_path', type=str, help="As a numpy matrix")
     parser.add_argument('--threshold', type=int, default=0.2)
     args = parser.parse_args()
-    model = torch.load(args.model_path)
+    model = torch.load(args.model_path, map_location=torch.device('cpu'))
 
     if torch.cuda.is_available():
         model = model.cuda()
