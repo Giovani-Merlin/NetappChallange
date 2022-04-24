@@ -37,7 +37,7 @@ class MRDataset(data.Dataset):
         if weights is None:
             pos = np.sum(self.labels)
             neg = len(self.labels) - pos
-            self.weights = torch.tensor(neg / pos)
+            self.weights = torch.tensor(neg/pos)
         else:
             self.weights = torch.tensor(weights)
 

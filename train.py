@@ -6,6 +6,9 @@ import argparse
 import numpy as np
 import random
 
+from transformers.optimization import AdamW
+from transformers.optimization import get_linear_schedule_with_warmup
+
 import torch
 import torch.optim as optim
 from torchsample.transforms import RandomRotate, RandomTranslate, RandomFlip, Compose
@@ -18,7 +21,7 @@ import model
 from dataloader import MRDataset, stack_collate
 
 
-def train_model(model, train_loader, epoch, num_epochs, optimizer, writer, current_lr, log_every=10):
+def train_model(model, train_loader, epoch, num_epochs, optimizer,scheduler, writer, current_lr, log_every=100):
     model.train()
     
     y_preds = []
@@ -40,6 +43,8 @@ def train_model(model, train_loader, epoch, num_epochs, optimizer, writer, curre
         loss = torch.nn.BCEWithLogitsLoss(pos_weight=weights)(prediction, labels) # 
         loss.backward()
         optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad()
 
         loss_value = loss.item()
         losses.append(loss_value)
@@ -51,13 +56,9 @@ def train_model(model, train_loader, epoch, num_epochs, optimizer, writer, curre
         probas = torch.sigmoid(prediction).detach().cpu().numpy()
         y_preds.extend(probas)
         training_preds.extend(probas)
-        # Estimate accuracy
-        accuracy = metrics.accuracy_score(labels, probas.round())
-
 
         writer.add_scalar('Train/Loss', loss_value,
                           epoch * len(train_loader) + i)
-        writer.add_scalar('Train/accuracy', accuracy, epoch * len(train_loader) + i)
 
         if (i % log_every == 0) & (i > 0):
             try:
@@ -66,6 +67,8 @@ def train_model(model, train_loader, epoch, num_epochs, optimizer, writer, curre
             except:
                 train_auc = 0.5
             training_preds, training_trues = [], []
+            writer.add_scalar('Train/auc', train_auc, epoch * len(train_loader) + i)
+            
             print('''[Epoch: {0} / {1} |Single batch number : {2} / {3} ]| avg train loss {4} | train auc : {5} | lr : {6}'''.
                   format(
                       epoch + 1,
@@ -74,11 +77,11 @@ def train_model(model, train_loader, epoch, num_epochs, optimizer, writer, curre
                       len(train_loader),
                       np.round(np.mean(losses), 4),
                       np.round(train_auc, 4),
-                      current_lr
+                      get_lr(optimizer)
                   )
                   )
     auc = metrics.roc_auc_score(y_trues, y_preds)
-    writer.add_scalar('Train/AUC_epoch', auc, epoch + i)
+    writer.add_scalar('Train/auc', auc, epoch + i)
 
     train_loss_epoch = np.round(np.mean(losses), 4)
     train_auc_epoch = np.round(auc, 4)
@@ -112,18 +115,17 @@ def evaluate_model(model, val_loader, epoch, num_epochs, writer, current_lr, log
         probas = torch.sigmoid(prediction).detach().cpu().numpy()
         y_preds.extend(probas)
 
-        # Estimate accuracy
-        accuracy = metrics.accuracy_score(labels, probas.round())
 
         writer.add_scalar('Valid/Loss', loss_value,
                           epoch * len(val_loader) + i)
-        writer.add_scalar('Valid/accuracy', accuracy, epoch * len(val_loader) + i)
+
 
         if (i % log_every == 0) & (i > 0):
             try:
                 valid_auc = metrics.roc_auc_score(y_trues, y_preds)
             except:
                 valid_auc = 0.5
+            writer.add_scalar('Valid/auc', valid_auc, epoch * len(val_loader) + i)
             print('''[Epoch: {0} / {1} |Single batch number : {2} / {3} ]| avg valid loss {4} | valid auc : {5} | lr : {6}'''.
                   format(
                       epoch + 1,
@@ -136,6 +138,7 @@ def evaluate_model(model, val_loader, epoch, num_epochs, writer, current_lr, log
                   )
                   )
     auc = metrics.roc_auc_score(y_trues, y_preds)
+    writer.add_scalar('Valid/auc', valid_auc, epoch * len(val_loader) + i)
     val_auc_epoch = np.round(auc, 4)
     val_loss_epoch = np.round(np.mean(losses), 4) 
     return val_loss_epoch, val_auc_epoch
@@ -160,13 +163,15 @@ def run(args):
 
     writer = SummaryWriter(logdir)
 
+
     augmentor = Compose([
         transforms.Lambda(lambda x: torch.Tensor(x)),
         RandomRotate(25),
         RandomTranslate([0.11, 0.11]),
         RandomFlip(),
         transforms.Lambda(lambda x: x.repeat(3, 1, 1, 1).permute(1, 0, 2, 3)),
-    ])
+    ]) if args.augment else None
+    batch_size = args.batch_size
     seed = args.seed
     random.seed(seed)
     np.random.seed(seed)
@@ -175,29 +180,48 @@ def run(args):
     g.manual_seed(seed)
 
     train_dataset = MRDataset(f'{base_folder}/data/', args.task,
+<<<<<<< HEAD
                               args.plane, transform=augmentor, train=True)
+=======
+                              args.plane, train=True,transform=augmentor)
+>>>>>>> da938afd06eb1f799ce2cbc1c60bad30ab6c60a1
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=4, shuffle=True, num_workers=6, drop_last=False, collate_fn=stack_collate, generator=g)
+        train_dataset, batch_size=batch_size, shuffle=True, num_workers=6, drop_last=False, collate_fn=stack_collate, generator=g)
 
     validation_dataset = MRDataset(
         f'{base_folder}/data/', args.task, args.plane, train=False)
     validation_loader = torch.utils.data.DataLoader(
-        validation_dataset, batch_size=4, shuffle=-True, num_workers=6, drop_last=False,collate_fn=stack_collate, generator=g)
+        validation_dataset, batch_size=batch_size, shuffle=-True, num_workers=6, drop_last=False,collate_fn=stack_collate, generator=g)
 
     mrnet = model.MRNet()
 
     if torch.cuda.is_available():
         mrnet = mrnet.cuda()
 
-    optimizer = optim.Adam(mrnet.parameters(), lr=args.lr, weight_decay=0.1)
+    # GEt optimizer
+    no_decay = ["bias", "gamma", "beta"]
+    parameters_without_decay = []
+    parameters_with_decay = []
+    for n, p in mrnet.named_parameters():
+        if any(t in n for t in no_decay):
+            parameters_without_decay.append(p)
+        else:
+            parameters_with_decay.append(p)
+    optimizer_grouped_parameters = [
+        {"params": parameters_with_decay, "weight_decay": 0.1, "lr": args.lr},
+        {"params": parameters_without_decay, "weight_decay": 0.0, "lr": args.lr},
+    ]
+    optimizer = AdamW(optimizer_grouped_parameters, correct_bias=False)
+    warmup_proportion = 0.01
+    len_train_data = len(train_loader)
+    num_train_steps = int(len_train_data / batch_size) * args.epochs
+    num_warmup_steps = int(num_train_steps * warmup_proportion)
 
-    if args.lr_scheduler == "plateau":
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=3, factor=.3, threshold=1e-4, verbose=True)
-    elif args.lr_scheduler == "step":
-        scheduler = torch.optim.lr_scheduler.StepLR(
-            optimizer, step_size=3, gamma=args.gamma)
-
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=num_warmup_steps,
+        num_training_steps=num_train_steps,
+    )
     best_val_loss = float('inf')
     best_val_auc = float(0)
 
@@ -214,14 +238,10 @@ def run(args):
         t_start = time.time()
         
         train_loss, train_auc = train_model(
-            mrnet, train_loader, epoch, num_epochs, optimizer, writer, current_lr, log_every)
+            mrnet, train_loader, epoch, num_epochs, optimizer,scheduler, writer, current_lr, log_every)
         val_loss, val_auc = evaluate_model(
             mrnet, validation_loader, epoch, num_epochs, writer, current_lr)
 
-        if args.lr_scheduler == 'plateau':
-            scheduler.step(val_loss)
-        elif args.lr_scheduler == 'step':
-            scheduler.step()
 
         t_end = time.time()
         delta = t_end - t_start
@@ -256,22 +276,23 @@ def run(args):
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-t', '--task', type=str, required=True,
+    parser.add_argument('-t', '--task', type=str, 
                         choices=['abnormal', 'acl', 'meniscus'], default="acl")
-    parser.add_argument('-p', '--plane', type=str, required=True,
+    parser.add_argument('-p', '--plane', type=str,
                         choices=['sagittal', 'coronal', 'axial'], default='sagittal')
     parser.add_argument('--prefix_name', type=str, default='test_model')
     parser.add_argument('--augment', type=int, choices=[0, 1], default=1)
     parser.add_argument('--lr_scheduler', type=str,
-                        default='plateau', choices=['plateau', 'step'])
+                        default='step', choices=['plateau', 'step'])
     parser.add_argument('--gamma', type=float, default=0.5)
-    parser.add_argument('--epochs', type=int, default=40)
-    parser.add_argument('--lr', type=float, default=5e-6)
+    parser.add_argument('--epochs', type=int, default=20)
+    parser.add_argument('--lr', type=float, default=1e-6)
     parser.add_argument('--flush_history', type=int, choices=[0, 1], default=0)
     parser.add_argument('--save_model', type=int, choices=[0, 1], default=1)
     parser.add_argument('--patience', type=int, default=5)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument('--log_every', type=int, default=10)
+    parser.add_argument('--batch_size', type=int, default=1)
     args = parser.parse_args()
     return args
 

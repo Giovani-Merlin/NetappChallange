@@ -1,7 +1,10 @@
 tqdm
+dash
+dash_bootstrap_components
 torch==1.11
 transformers==4.18.0
 tensorboardX==2.5
 git+https://github.com/ncullen93/torchsample
 torchvision==0.12.0
 nibabel==3.2.2
+sklearn
