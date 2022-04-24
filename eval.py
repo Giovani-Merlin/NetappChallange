@@ -9,9 +9,15 @@ from dataloader import *
 
 def eval_image(image_path, model, threshold=0.5):
     image = np.load(image_path)
+    image = np.stack((image,)*3, axis=1)
+
+    image = torch.FloatTensor(image)
+    if torch.cuda.is_available():
+        image = image.cuda()
+    #image = image.unsqueeze(0)
     with torch.no_grad():
-        prediction = model.forward(image,model)
-    labels = labels.detach().cpu().numpy()
+        prediction = model.forward(image,[image.shape[0]])
+
     # 
     answer = torch.sigmoid(prediction).detach().cpu().numpy() > threshold
     if answer:
@@ -55,7 +61,6 @@ def eval_test(model,test_path, task,plane, threshold=0.5):
 
 def main(args, model):
     if args.image_path:
-        array = np.load(args)
         eval_image(args.image_path, model,args.threshold)
     else:
         eval_test(model,args.test_path,args.task,args.plane, args.threshold)
